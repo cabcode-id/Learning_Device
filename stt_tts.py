@@ -1,95 +1,60 @@
 import os
-import sys
 import queue
 import sounddevice as sd
-import vosk
+import wave
 import json
-import time
 import pyttsx3
-import langid
 import streamlit as st
 import requests
+import openai
 
-# Function: Remove Duplicates from Text
-def remove_duplicates(text):
-    words = text.split()
-    deduplicated = []
-    for word in words:
-        if not deduplicated or word != deduplicated[-1]:
-            deduplicated.append(word)
-    return ' '.join(deduplicated)
+# Set API Key untuk OpenAI
+openai.api_key = "your-openai-key"
 
-# Initialize Vosk Model
-model_path = "./vosk-model-small-en-us-0.15"
-if not os.path.exists(model_path):
-    raise FileNotFoundError(f"Model Vosk tidak ditemukan di path: {model_path}")
-model = vosk.Model(model_path)
+# Fungsi: Simpan audio yang direkam menjadi file WAV
+def record_audio(filename, duration=5, samplerate=16000):
+    print("Merekam audio...")
+    audio_data = sd.rec(int(samplerate * duration), samplerate=samplerate, channels=1, dtype='int16')
+    sd.wait()  # Tunggu hingga rekaman selesai
+    with wave.open(filename, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)  # 16-bit audio
+        wf.setframerate(samplerate)
+        wf.writeframes(audio_data.tobytes())
+    print("Rekaman selesai.")
 
-samplerate = 16000
-device = None
-audio_q = queue.Queue()
+# Fungsi: STT menggunakan OpenAI Whisper
+def speech_to_text(audio_file):
+    with open(audio_file, 'rb') as f:
+        response = openai.Audio.transcribe("whisper-1", f)
+    return response['text']
 
-def audio_callback(indata, frames, time, status):
-    if status:
-        print(status, file=sys.stderr)
-    audio_q.put(bytes(indata))
-
-def get_speech_to_text():
-    silence_timeout = 5
-    last_spoken_time = time.time()
-    collected_text = ""
-
-    with sd.RawInputStream(samplerate=samplerate, blocksize=8000, device=device,
-                           dtype='int16', channels=1, callback=audio_callback):
-        rec = vosk.KaldiRecognizer(model, samplerate)
-        while True:
-            try:
-                data = audio_q.get(timeout=silence_timeout)
-                last_spoken_time = time.time()
-
-                if rec.AcceptWaveform(data):
-                    result = json.loads(rec.Result())
-                    final_text = result.get("text", "").strip()
-                    final_text = remove_duplicates(final_text)
-                    return final_text
-
-            except queue.Empty:
-                if time.time() - last_spoken_time > silence_timeout:
-                    return collected_text.strip()
-
-# Function: Text-to-Speech
+# Fungsi: TTS menggunakan pyttsx3
 def speak(text):
     engine = pyttsx3.init()
-    voices = engine.getProperty('voices')
-
-    language, _ = langid.classify(text)
-
-    if language == 'id':
-        engine.setProperty('voice', voices[0].id)
-    elif language == 'en':
-        engine.setProperty('voice', voices[1].id)
-    else:
-        engine.setProperty('voice', voices[1].id)
-
-    engine.setProperty('rate', 150)
+    engine.setProperty('rate', 150)  # Kecepatan bicara
     engine.say(text)
     engine.runAndWait()
 
 # Streamlit Interface
-# API_URL = "http://34.101.169.131:8000"
-API_URL = "http://34.101.254.104:8000"
+API_URL = "http://127.0.0.1:8000"
 
 st.title("Chatbot Multimodal (Teks & Suara)")
 
+# Pilih endpoint
+endpoint_choice = st.radio("Pilih endpoint:", ("/chat_openai", "/chat"))
+
+# Pilih metode input
 input_mode = st.radio("Pilih metode input:", ("Teks", "Suara"))
 
 if input_mode == "Teks":
     user_text = st.text_input("Masukkan teks:")
     if st.button("Kirim"):
         if user_text.strip():
-            response = requests.post(f"{API_URL}/chat", json={"prompt": user_text, "max_length": 100})
+            # Kirim permintaan ke endpoint yang dipilih
+            response = requests.post(f"{API_URL}{endpoint_choice}", json={"prompt": user_text, "max_length": 100})
             if response.status_code == 200:
-                bot_response = response.json()["response"]
+                bot_response = response.json().get("response", "Tidak ada respons.")
                 st.text_area("Respons Chatbot:", bot_response, height=150)
                 speak(bot_response)  # TTS untuk respons chatbot
             else:
@@ -100,13 +65,18 @@ if input_mode == "Teks":
 elif input_mode == "Suara":
     if st.button("Mulai Rekaman"):
         st.info("Sedang merekam suara...")
+        audio_file = "input_audio.wav"
+        record_audio(audio_file)
+
+        st.info("Mengonversi suara ke teks...")
         try:
-            input_text = get_speech_to_text()
+            input_text = speech_to_text(audio_file)
             st.write(f"Input Suara ke Teks: {input_text}")
 
-            response = requests.post(f"{API_URL}/chat", json={"prompt": input_text, "max_length": 100})
+            # Kirim permintaan ke endpoint yang dipilih
+            response = requests.post(f"{API_URL}{endpoint_choice}", json={"prompt": input_text, "max_length": 100})
             if response.status_code == 200:
-                bot_response = response.json()["response"]
+                bot_response = response.json().get("response", "Tidak ada respons.")
                 st.text_area("Respons Chatbot:", bot_response, height=150)
                 speak(bot_response)  # TTS untuk respons chatbot
             else:
