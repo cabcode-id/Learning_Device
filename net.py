@@ -4,10 +4,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from llama_cpp import Llama
 from transformers import MarianMTModel, MarianTokenizer
 from langdetect import detect
+import openai
 import json
 import re
 import random
 from datetime import datetime
+import requests
 import torch
 
 # Inisialisasi model LLaMA.cpp
@@ -86,7 +88,7 @@ class ChatRequest(BaseModel):
     prompt: str
     max_length: int = 100  # Panjang maksimum teks yang dihasilkan
 
-# Endpoint utama untuk chatbot
+# Endpoint utama untuk chatbot (BitNet)
 @app.post("/chat")
 async def chat(request: ChatRequest):
     try:
@@ -143,6 +145,51 @@ async def chat(request: ChatRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
+# Endpoint untuk menggunakan OpenAI
+@app.post("/chat_openai")
+async def chat_openai(request: ChatRequest):
+    try:
+        # Mengambil data dari request
+        prompt = request.prompt.strip()
+        max_length = request.max_length
+
+        # Validasi input
+        if not prompt:
+            raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
+        if max_length > 512 or max_length < 10:
+            raise HTTPException(
+                status_code=400, detail="max_length must be between 10 and 512."
+            )
+
+        # Kirim permintaan ke OpenAI
+        openai.api_key = "your-openai-key"
+        response = openai.ChatCompletion.create(
+            model="ft:gpt-3.5-turbo-0125:pukulenam::AfFfcnbp",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=max_length,
+            temperature=random.uniform(0.5, 1.0),
+            top_p=random.uniform(0.8, 1.0)
+        )
+        generated_text = response["choices"][0]["message"]["content"].strip()
+
+
+        # Simpan riwayat chat
+        chat_history = load_chat_history()
+        chat_history.append({
+            "user_message": prompt,
+            "bot_response": generated_text,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        save_chat_history(chat_history)
+
+        return {"response": generated_text}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+
 # Endpoint untuk mendapatkan riwayat chat
 @app.get("/history")
 async def get_history():
@@ -155,4 +202,4 @@ async def get_history():
 # Endpoint untuk tes apakah API berjalan
 @app.get("/")
 async def root():
-    return {"message": "Chatbot API is running with LLaMA.cpp and translation support."}
+    return {"message": "Chatbot API is running with LLaMA.cpp, OpenAI, and translation support."}
