@@ -164,7 +164,7 @@ async def chat_openai(request: ChatRequest):
         # Kirim permintaan ke OpenAI
         openai.api_key = "your-openai-key"
         response = openai.ChatCompletion.create(
-            model="ft:gpt-3.5-turbo-0125:pukulenam::AfFfcnbp",
+            model="ft:gpt-3.5-turbo-0125:pukulenam::AfFfcnbp", #model openai yang sudah di fine-tuning
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "user", "content": prompt}
