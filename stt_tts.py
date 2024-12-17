@@ -37,7 +37,7 @@ def speak(text):
     engine.runAndWait()
 
 # Streamlit Interface
-API_URL = "http://127.0.0.1:8000"
+API_URL = "your-API deploy"
 
 st.title("Chatbot Multimodal (Teks & Suara)")
 
